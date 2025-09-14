@@ -6,7 +6,7 @@ import { v7 as uuidv7 } from "uuid";
 import { defaultFieldConfig } from "../constants";
 import { DEFAULT_LANGUAGE } from "../constants/locale";
 import { FormFieldType, FormRow } from "../formBuilder.types";
-import { userFieldConfig } from "../user-configs";
+import { PropOverride, userFieldConfig } from "../user-configs";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -68,6 +68,28 @@ export function createNewField(
   };
 }
 
+export function applyOverrides(
+  field: FormFieldType,
+  overrides?: Record<string, PropOverride>
+): FormFieldType {
+  if (!overrides) return field;
+
+  const newField = { ...field } as any;
+
+  Object.entries(overrides).forEach(([prop, override]) => {
+    if (override.type === "value") {
+      newField[prop] = override.value;
+    } else if (override.type === "component") {
+      newField._components = {
+        ...(newField._components ?? {}),
+        [prop]: { component: override.component, panel: override.panel },
+      };
+    }
+  });
+
+  return newField;
+}
+
 export function createNewFieldWithDynamicProps(
   variant: string,
   rowIndex: number,
@@ -83,7 +105,11 @@ export function createNewFieldWithDynamicProps(
     placeholder: { en: "", ar: "" },
   };
 
-  const overrides = userFieldConfig?.overrides?.[variant.toLowerCase()];
+  const variantConfig = userFieldConfig?.fields?.[variant];
+
+  if (variantConfig?.enabled === false) {
+    return null;
+  }
 
   const baseField: FormFieldType = {
     key,
@@ -126,12 +152,13 @@ export function createNewFieldWithDynamicProps(
     }),
   };
 
+  const removeProps = [...(variantConfig?.removeProps ?? [])];
+  removeProps.forEach((prop) => {
+    delete (baseField as any)[prop];
+  });
+
   // ✅ Merge in user-defined dynamic props
-  return {
-    ...baseField,
-    ...overrides,
-    variant,
-  };
+  return applyOverrides(baseField, variantConfig?.overrides);
 }
 
 export const searchField = (
@@ -211,7 +238,7 @@ export function appendFieldByRowIdRecursive(
       return newRow;
     }
 
-    const updatedFields = row.fields.map((field: FormFieldType) => {
+    const updatedFields = row.fields.map((field) => {
       if (field.variant === "Group" && "fields" in field) {
         return {
           ...field,
@@ -236,7 +263,7 @@ export function removeFieldByKey(
 ): FormRow[] {
   return formBuilder.map((row) => {
     const updatedFields = row.fields
-      .map((field: FormFieldType) => {
+      .map((field) => {
         if (field.variant === "Group" && "fields" in field) {
           return {
             ...field,
@@ -245,7 +272,7 @@ export function removeFieldByKey(
         }
         return field;
       })
-      .filter((field: FormFieldType) => field.key !== targetFieldKey); // remove match
+      .filter((field) => field.key !== targetFieldKey); // remove match
 
     return { ...row, fields: updatedFields };
   });
@@ -258,7 +285,7 @@ export function updateFieldByKey(
 ): FormRow[] {
   return formRows.map((row) => ({
     ...row,
-    fields: row.fields.map((field: FormFieldType) => {
+    fields: row.fields.map((field) => {
       if (field.key === key) {
         // Replace field if the key matches
         return { ...field, ...props };
@@ -339,17 +366,15 @@ export function insertRowBeforeRecursive(
       }
 
       // Update nested groups in fields recursively
-      const newFields = newRows[newRows.length - 1].fields.map(
-        (field: FormFieldType) => {
-          if (field.variant === "Group" && Array.isArray(field.fields)) {
-            return {
-              ...field,
-              fields: recursiveInsert(field.fields),
-            };
-          }
-          return field;
+      const newFields = newRows[newRows.length - 1].fields.map((field) => {
+        if (field.variant === "Group" && Array.isArray(field.fields)) {
+          return {
+            ...field,
+            fields: recursiveInsert(field.fields),
+          };
         }
-      );
+        return field;
+      });
 
       newRows[newRows.length - 1] = {
         ...newRows[newRows.length - 1],
@@ -366,7 +391,7 @@ export function insertRowBeforeRecursive(
 export function disableAllFields(builder: FormRow[]): FormRow[] {
   return builder.map((row) => ({
     ...row,
-    fields: row.fields.map((field: FormFieldType) => {
+    fields: row.fields.map((field) => {
       if (field.variant === "Group") {
         return {
           ...field,
